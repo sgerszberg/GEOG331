@@ -108,7 +108,7 @@ averages<-round(averages,2)
 
 #question 9
 
-par(mfrow=c(2,2))
+# par(mfrow=c(2,2))
 
 
 plot(datW$DD , datW$soil.moisture, xlab = "Day of Year", ylab = "Soil Moisture",
