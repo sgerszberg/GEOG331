@@ -1,0 +1,221 @@
+library("nflfastR")
+library("lubridate")
+library('ggplot2')
+library('dplyr')
+library('ggrepel')
+# install.packages('dplyr')
+
+seasons <- 2006:2019
+pbp <- purrr::map_df(seasons, function(x) {
+  readRDS(
+    url(
+      glue::glue("https://raw.githubusercontent.com/guga31bb/nflfastR-data/master/data/play_by_play_{x}.rds")
+    )
+  )
+})
+
+game_ids<-pbp$game_id
+
+pbp$year<-year(pbp$game_date)
+
+#deleted all the games with no weather information
+pbp<-pbp[!is.na(pbp$weather),]
+
+
+# #deleted if the game was played in a dome 
+pbp<-pbp[pbp$roof=="outdoors",]
+
+#subset the weather into 3 columns:
+weather_type<-unlist(strsplit(pbp$weather,"Temp:"))
+
+odd<-seq(1,length(weather_type),2)
+
+weather_type<-weather_type[odd]
+
+pbp$weather_type<-weather_type
+
+#Snow,Rain, clearandcool, Sunny
+pbp$weather_type <- gsub('\\s+', '', weather_type)
+
+pbp<-pbp[order(pbp$temp),]
+table(pbp$weather_type=="Snow")
+
+
+#only pass play
+pbp<-pbp[pbp$pass==1 & pbp$play_type!="no_play" & pbp$play_type=="pass" &  !is.na(pbp$epa),]
+
+pbp_weather_data<-pbp[,c(1:10,317,37:39,72,310:311,341:342,315)]
+
+#subsetting no sacks
+pbp_weather_data<-pbp_weather_data[!is.na(pbp_weather_data$pass_length),]
+
+
+#weather type names need to be fixed
+pbp_weather_data<-pbp_weather_data[pbp_weather_data$weather_type!="",]
+
+#no uppercases or spaces 
+pbp_weather_data$weather_type<-gsub('\\s+', '', pbp_weather_data$weather_type)
+pbp_weather_data$weather_type<-trimws(pbp_weather_data$weather_type)
+pbp_weather_data$weather_type<-trimws(pbp_weather_data$weather_type)
+pbp_weather_data$weather_type<-tolower(pbp_weather_data$weather_type)
+
+# #defining windy
+# #over 20 mph
+# pbp_weather_data$weather_type[pbp_weather_data$wind>40]<-"Windy"
+
+# defining cold
+
+pbp_weather_data$weather_type[pbp_weather_data$temp<30]<-"Cold"
+
+#to fixx the unique weather names
+#weather type names need to be fixed
+
+# defining rain names
+pbp_weather_data$weather_type[grepl("rain",pbp_weather_data$weather_type)|grepl("shower",pbp_weather_data$weather_type)|grepl("drizzle",pbp_weather_data$weather_type)]<-"Rain"
+# defining sunny names
+pbp_weather_data$weather_type[grepl("clear",pbp_weather_data$weather_type)|grepl("sun",pbp_weather_data$weather_type)|grepl("fair",pbp_weather_data$weather_type)]<-"Sunny"
+# defining cloud names
+pbp_weather_data$weather_type[grepl("cloud",pbp_weather_data$weather_type)|grepl("coudy",pbp_weather_data$weather_type)]<-"Cloudy"
+# defining snow names
+pbp_weather_data$weather_type[grepl("snow",pbp_weather_data$weather_type)]<-"Snow"
+# defining cold names
+pbp_weather_data$weather_type[grepl("cold",pbp_weather_data$weather_type)]<-"Cold"
+
+#extraneous words
+pbp_weather_data<-pbp_weather_data[pbp_weather_data$weather_type!='breezy'&
+                                     pbp_weather_data$weather_type!='hazy'&
+                                     pbp_weather_data$weather_type!='partlyclouidy'&
+                                     pbp_weather_data$weather_type!='overcast'&
+                                     pbp_weather_data$weather_type!='foggy',]
+
+#aggreating each weather type for graph
+Weather_graph<-pbp_weather_data[,c("epa","weather_type")] %>%
+  add_count(weather_type)%>%
+  group_by(weather_type)%>%
+  summarise_each(funs(mean))%>%
+  ungroup()
+
+#to add color
+Weather_graph$color<-c("#6D6968",
+                       "#ADD8E6",
+                       '#0098c8',
+                       '#696969',
+                       '#CCCC00')
+
+Weather_graph<-Weather_graph[order(Weather_graph$epa,decreasing = TRUE),]
+
+
+
+
+#plots
+#EPA graph
+ggplot(data=Weather_graph,aes(y=epa,x=sort(weather_type)))+
+  #adding color
+    geom_bar(fill=Weather_graph$color,stat="identity")+
+  #adding text to plot
+    geom_text(aes(label=weather_type), vjust=-1, color="red", size=3.5)+
+  #background display and remove x axis labels
+    theme(panel.background = element_rect(fill='#f8f8ff'),
+          axis.text.x = element_blank())+
+  #red line
+    geom_hline(yintercept=0,  color ="red",size=2)+
+  #axis labels
+    labs(
+    x = "Weather Type",
+    y = "QB EPA",
+    title = paste('Weather effect on EPA')
+    )+
+
+      
+  
+
+Weather_graph_air_yards<-pbp_weather_data[,c("air_yards","weather_type")] %>%
+  add_count(weather_type)%>%
+  group_by(weather_type)%>%
+  summarise_each(funs(mean))%>%
+  ungroup()
+
+#to add color match
+
+color_match<-match(Weather_graph_air_yards$weather_type,Weather_graph$weather_type)
+
+Weather_graph_air_yards$color<-Weather_graph$color[color_match]
+
+
+#air yards graph
+ggplot(data=Weather_graph_air_yards,aes(y=sort(air_yards),x=weather_type))+
+  #adding color
+  geom_bar(fill=Weather_graph_air_yards$color,stat="identity")+
+  #adding text to plot
+  geom_text(aes(label=weather_type), vjust=-1, color="red", size=3.5)+
+  #background display and remove x axis labels
+  theme(panel.background = element_rect(fill='#f8f8ff'),
+        axis.text.x = element_blank())+
+  #red line
+  geom_hline(yintercept=0,  color ="red",size=2)+
+  #axis labels
+  labs(
+    x = "Weather Type",
+    y = "Air yards per pass",
+    title = paste('Weather effect on Air Yards per pass')
+  ) 
+
+
+
+# individual quaterback in weather
+Weather_graph_passer<-pbp_weather_data[,c('passer',"epa","weather_type",'air_yards')] %>%
+  add_count(passer,weather_type)%>%
+  group_by(passer,weather_type)%>%
+  summarise_each(funs(mean))%>%
+  ungroup()
+
+
+color_match<-match(Weather_graph_passer$weather_type,Weather_graph$weather_type)
+
+Weather_graph_passer$color<-Weather_graph$color[color_match]
+
+#minimum 400 games in a weather type
+
+Weather_graph_passer_min_400<-Weather_graph_passer[Weather_graph_passer$n>400,]
+
+#minimum 400
+
+ggplot(data=Weather_graph_passer_min_400,aes(y=epa,x=air_yards))+
+  #adding color
+  #adding text to plot
+  geom_text_repel(aes(label=passer),colour=Weather_graph_passer_min_400$color, size=4)+
+  #background display and remove x axis labelsxx
+  theme(panel.background = element_rect(fill='#f8f8ff'),
+        legend.key = element_rect(fill = "white", colour = "black"))+
+  #red line
+  geom_hline(yintercept=0,  color ="red",size=2)+
+  #axis labels
+  labs(
+    x = "Air Yards per play",
+    y = "EPA per play",
+    title = paste('Weather effect on Air Yards and EPA per play (Minimum 400 plays)')
+  )
+
+
+
+#MINIMUM 800
+Weather_graph_passer_min_800<-Weather_graph_passer[Weather_graph_passer$n>800,]
+
+ggplot(data=Weather_graph_passer_min_800,aes(y=epa,x=air_yards))+
+  labs(
+    x = "Air Yards per play",
+    y = "EPA per play",
+    title = paste('Weather effect on Air Yards and EPA per play (Minimum 800 plays)')
+  )+
+  #adding color
+  #adding text to plot
+  geom_text_repel(aes(label=passer),colour=Weather_graph_passer_min_800$color, size=6)+
+  #background display and remove x axis labelsxx
+  theme(panel.background = element_rect(fill='#f8f8ff'),
+        legend.title = element_text(colour="blue", size=10, 
+                                    face="bold"))+
+  geom_hline(yintercept=0,  color ="red",size=2)
+
+d
+
+
