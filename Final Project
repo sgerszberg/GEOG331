@@ -216,6 +216,5 @@ ggplot(data=Weather_graph_passer_min_800,aes(y=epa,x=air_yards))+
                                     face="bold"))+
   geom_hline(yintercept=0,  color ="red",size=2)
 
-d
 
 
